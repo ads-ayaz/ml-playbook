@@ -18,16 +18,17 @@ from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard
 
 
 # Default config dictionary keys
+DEFAULT_CONFIG_BATCH_SIZE = 32
 DEFAULT_CONFIG_FILE = ''
-DEFAULT_CONFIG_DATASET_GENERATED = False
+DEFAULT_CONFIG_EPOCHS = 20
 DEFAULT_CONFIG_SHUFFLE = True
 DEFAULT_CONFIG_VERBOSITY = 2
 
-KEY_ARGS_CONFIG_FILE = '--config-file'
+KEY_ARGS_CONFIG_FILE = 'config-file'
+KEY_ARGS_CONFIG_FILE-SHORT = 'c:'
 
 KEY_CONFIG_BATCH_SIZE = 'batch_size'
 KEY_CONFIG_EPOCHS = 'epochs'
-KEY_CONFIG_DATASET_GENERATED = 'CONFIG_DATASET_GENERATED'
 KEY_CONFIG_SHUFFLE = 'shuffle'
 KEY_CONFIG_VERBOSITY = 'verbose'
 
@@ -36,20 +37,70 @@ KEY_CONFIG_VERBOSITY = 'verbose'
 def parse_commandline() :
     """Parse any command line arguments that were passed to this process."""
 
-    ret_dict = {}
+    # Define the command line args we expect
+    short_options = KEY_ARGS_CONFIG_FILE-SHORT
+    long_options = [KEY_ARGS_CONFIG_FILE]
     
+    # Parse command line
+    args_list = sys.argv[1:]
+    
+    try :
+        arguments, values = getopt.getopt(args_list, short_options, long_options)
+    except getopt.error as e :
+        print(str(e))
+        sys.exit(2)
+
+
+    # Populate the return dictionary with defaults
+    ret_dict = {}
+    ret_dict[KEY_ARGS_CONFIG_FILE] = DEFAULT_CONFIG_FILE
+        
+    # Add / overwrite defaults with any passed argument values
+    for arg, val in arguments:
+        if arg in (KEY_ARGS_CONFIG_FILE-SHORT, KEY_ARGS_CONFIG_FILE) :
+            if (os.path.isfile(val)) :
+                ret_dict[KEY_ARGS_CONFIG_FILE] = val
+            else :
+                logging.ERROR('Configuration file %s was not found.' % str(val))
+                sys.exit(2)
+
     return ret_dict
     
 
-def load_configuration(config_file='') :
+def load_configuration(config_file=DEFAULT_CONFIG_FILE) :
     """Load parameters for this training from the YAML configuration file.
     
     Keyword arguments:
     config_file -- filename of the config file.
     """
     
+    # Populate return dictionary with default values
     ret_dict = {}
+    ret_dict[KEY_CONFIG_BATCH_SIZE] = DEFAULT_CONFIG_BATCH_SIZE
+    ret_dict[KEY_CONFIG_EPOCHS] = DEFAULT_CONFIG_EPOCHS
+    ret_dict[KEY_CONFIG_SHUFFLE] = DEFAULT_CONFIG_SHUFFLE
+    ret_dict[KEY_CONFIG_VERBOSITY] = DEFAULT_CONFIG_VERBOSITY
     
+    # If there is no config file, return the default values
+    if len(config_file) == 0 :
+        return ret_dict
+    
+    # Load yaml configuration file.
+    try :
+        stream = open(config_file, 'r')
+        dictionary = yaml.safe_load_all(stream)
+
+        # Grab the first YAML doc and ignore any others
+        ret_dict = dictionary[0]
+
+    except Exception as e :
+        logging.ERROR('Unable to load configuration from %s . Is YAML valid?'  % (config_file))
+        sys.exit(2)
+        
+    finally:
+        stream.close()
+
+        
     return ret_dict
 
     
