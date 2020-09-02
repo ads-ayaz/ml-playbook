@@ -5,7 +5,9 @@ Aluance ML spot-instance-friendly training harness.
 Automatically resumes training from where it left off.
 """
 
+import datetime
 import getopt
+import glob
 import logging
 import numpy as np
 import os
@@ -19,15 +21,18 @@ from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard
 
 # Default config dictionary keys
 DEFAULT_CONFIG_BATCH_SIZE = 32
+DEFAULT_CONFIG_CHECKPOINT_NAMES = 'ads_model.{epoch:03d}.h5'
 DEFAULT_CONFIG_FILE = ''
 DEFAULT_CONFIG_EPOCHS = 20
 DEFAULT_CONFIG_SHUFFLE = True
 DEFAULT_CONFIG_VERBOSITY = 2
 
 KEY_ARGS_CONFIG_FILE = 'config-file'
-KEY_ARGS_CONFIG_FILE-SHORT = 'c:'
+KEY_ARGS_CONFIG_FILE_SHORT = 'c:'
 
 KEY_CONFIG_BATCH_SIZE = 'batch_size'
+KEY_CONFIG_CHECKPOINT_PATH = 'checkpoint_path'
+KEY_CONFIG_CHECKPOINT_NAMES = 'checkpoint_name_format'
 KEY_CONFIG_EPOCHS = 'epochs'
 KEY_CONFIG_SHUFFLE = 'shuffle'
 KEY_CONFIG_VERBOSITY = 'verbose'
@@ -38,7 +43,7 @@ def parse_commandline() :
     """Parse any command line arguments that were passed to this process."""
 
     # Define the command line args we expect
-    short_options = KEY_ARGS_CONFIG_FILE-SHORT
+    short_options = KEY_ARGS_CONFIG_FILE_SHORT
     long_options = [KEY_ARGS_CONFIG_FILE]
     
     # Parse command line
@@ -57,11 +62,11 @@ def parse_commandline() :
         
     # Add / overwrite defaults with any passed argument values
     for arg, val in arguments:
-        if arg in (KEY_ARGS_CONFIG_FILE-SHORT, KEY_ARGS_CONFIG_FILE) :
+        if arg in (KEY_ARGS_CONFIG_FILE_SHORT, KEY_ARGS_CONFIG_FILE) :
             if (os.path.isfile(val)) :
                 ret_dict[KEY_ARGS_CONFIG_FILE] = val
             else :
-                logging.ERROR('Configuration file %s was not found.' % str(val))
+                logging.error('Configuration file %s was not found.' % str(val))
                 sys.exit(2)
 
     return ret_dict
@@ -94,7 +99,7 @@ def load_configuration(config_file=DEFAULT_CONFIG_FILE) :
         ret_dict = dictionary[0]
 
     except Exception as e :
-        logging.ERROR('Unable to load configuration from %s . Is YAML valid?'  % (config_file))
+        logging.error('Unable to load configuration from %s . Is YAML valid?'  % (config_file))
         sys.exit(2)
         
     finally:
@@ -117,17 +122,77 @@ def load_dataset() :
     return (X_train, Y_train), (X_val, Y_val), (X_test, Y_test)
     
 
-def get_model() :
-    """Returns the model and starting epoch. Loads it if a previous training run exists or creates a new instance."""
+def create_model(model_params):
+    """Returns a new model.
     
-    return None, 0
+    Keyword arguments:
+    model_params -- dictionary of parameters required to instantiate the model.
+    """
+    
+    return None
     
 
-def create_callbacks() :
+def load_model(checkpoint_path, checkpoint_names):
+    """Loads and returns the model to resume and the starting epoch number."""
+    
+    checkpoint_file_list = glob.glob(os.path.join(checkpoint_path, '*'))
+    
+    latest_epoch = max([int(file.split('.')[1]) for file in checkpoint_file_list])
+    checkpoint_epoch_path = os.path.join(checkpoint_path,
+                                         checkpoint_names.format(epoch=latest_epoch))
+
+    ret_model = load_model(checkpoint_epoch_path)
+
+    return ret_model, latest_epoch
+
+
+def get_model(model_params={}, checkpoint_path='', checkpoint_names=DEFAULT_CONFIG_CHECKPOINT_NAMES) :
+    """Returns the model and starting epoch. Loads it if a previous training run exists or creates a new instance."""
+    
+    model = None
+    epoch_no = 0
+    
+    if os.path.isdir(checkpoint_path) and any(glob.glob(os.path.join(checkpoint_path, '*'))):
+        model, epoch_number = load_checkpoint_model(checkpoint_path, checkpoint_names)
+    else:
+        model = create_model(model_params)
+        epoch_number = 0
+
+    
+    return model, epoch_no
+    
+
+def create_callbacks(checkpoint_path='', checkpoint_names=DEFAULT_CONFIG_CHECKPOINT_NAMES) :
     """Returns the callbacks list."""
     
     ret_list = []
-    
+    now_date = '{date:%Y-%m-%d_%H:%M:%S}'.format(date=datetime.datetime.now())
+
+    # Checkpoint callback
+    if not os.path.isdir(checkpoint_path):
+        os.makedirs(checkpoint_path)
+    filepath = os.path.join(checkpoint_path, checkpoint_names)
+    checkpoint_callback = ModelCheckpoint(
+        filepath=filepath, 
+        save_weights_only=False, 
+        monitor='val_loss', 
+        verbose=0, 
+        save_best_only=False, 
+        mode='min')
+    ret_list.append(checkpoint_callback)
+
+    # Tensorboard callback
+    log_dir = os.path.join(checkpoint_path, 'logs')
+    if not os.path.isdir(log_dir) :
+        os.makedirs(log_dir)
+    tensorboard_callback = TensorBoard(log_dir=log_dir)
+    ret_list.append(tensorboard_callback)
+
+    # CSVLogger callback
+    csv_logfile = os.path.join(checkpoint_path, ('training_log_%s.csv' % (now_date)))
+    csv_callback = CSVLogger(csv_logfile, append=True)
+    ret_list.append(csv_callback)
+
     return ret_list
     
 
@@ -142,7 +207,7 @@ def create_metrics() :
 def create_optimizer() :
     """Returns the optimizer."""
     
-    ret_val = ''
+    ret_val = None
     
     return ret_val
     
@@ -180,10 +245,12 @@ def main() :
     (X_train, Y_train), (X_val, Y_val), (X_test, Y_test) = load_dataset()
     
     # Get the model and starting epoch
-    model, epoch_start = get_model()
+    checkpoint_path = config_dict[KEY_CONFIG_CHECKPOINT_PATH]
+    checkpoint_filename_format = config_dict[KEY_CONFIG_CHECKPOINT_NAMES]
+    model, epoch_start = get_model(checkpoint_path=checkpoint_path, checkpoint_names=checkpoint_filename_format)
     
     # Set up the callbacks, optimizer, loss function and metrics
-    callbacks_list = create_callbacks()
+    callbacks_list = create_callbacks(checkpoint_path=checkpoint_path, checkpoint_names=checkpoint_filename_format)
     optimizer = create_optimizer()
     loss_fn = create_loss()
     metrics_list = create_metrics()
