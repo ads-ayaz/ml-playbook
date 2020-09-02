@@ -15,17 +15,24 @@ import sys
 import yaml
 
 from tensorflow.keras.models import load_model
-from tensorflow.keras.callbacks import CSVLogger, ModelCheckpoint, TensorBoard
+from tensorflow.keras.callbacks import Callback, CSVLogger, ModelCheckpoint, TensorBoard
 
 
 
-# Default config dictionary keys
+# Defaults and keys
+AWS_METADATA_SPOT_INSTANCE_ACTION = 'http://169.254.169.254/latest/meta-data/spot/instance-action'
+
 DEFAULT_CONFIG_BATCH_SIZE = 32
 DEFAULT_CONFIG_CHECKPOINT_NAMES = 'ads_model.{epoch:03d}.h5'
 DEFAULT_CONFIG_FILE = ''
 DEFAULT_CONFIG_EPOCHS = 20
 DEFAULT_CONFIG_SHUFFLE = True
+DEFAULT_CONFIG_SPOT_TERMINATION_SLEEP = 150
 DEFAULT_CONFIG_VERBOSITY = 2
+
+DEFAULT_MODEL_LOSS = 'categorical_crossentropy'
+DEFAULT_MODEL_METRICS = ['accuracy']
+DEFAULT_MODEL_OPTIMIZER = 'adam'
 
 KEY_ARGS_CONFIG_FILE = 'config-file'
 KEY_ARGS_CONFIG_FILE_SHORT = 'c:'
@@ -35,6 +42,7 @@ KEY_CONFIG_CHECKPOINT_PATH = 'checkpoint_path'
 KEY_CONFIG_CHECKPOINT_NAMES = 'checkpoint_name_format'
 KEY_CONFIG_EPOCHS = 'epochs'
 KEY_CONFIG_SHUFFLE = 'shuffle'
+KEY_CONFIG_SPOT_TERMINATION_SLEEP = 'spot_termination_sleep_time'
 KEY_CONFIG_VERBOSITY = 'verbose'
 
 
@@ -50,7 +58,7 @@ def parse_commandline() :
     args_list = sys.argv[1:]
     
     try :
-        arguments, values = getopt.getopt(args_list, short_options, long_options)
+        arguments, _ = getopt.getopt(args_list, short_options, long_options)
     except getopt.error as e :
         print(str(e))
         sys.exit(2)
@@ -83,7 +91,9 @@ def load_configuration(config_file=DEFAULT_CONFIG_FILE) :
     ret_dict = {}
     ret_dict[KEY_CONFIG_BATCH_SIZE] = DEFAULT_CONFIG_BATCH_SIZE
     ret_dict[KEY_CONFIG_EPOCHS] = DEFAULT_CONFIG_EPOCHS
+    ret_dict[KEY_CONFIG_CHECKPOINT_NAMES] = DEFAULT_CONFIG_CHECKPOINT_NAMES
     ret_dict[KEY_CONFIG_SHUFFLE] = DEFAULT_CONFIG_SHUFFLE
+    ret_dict[KEY_CONFIG_SPOT_TERMINATION_SLEEP] = DEFAULT_CONFIG_SPOT_TERMINATION_SLEEP
     ret_dict[KEY_CONFIG_VERBOSITY] = DEFAULT_CONFIG_VERBOSITY
     
     # If there is no config file, return the default values
@@ -99,7 +109,7 @@ def load_configuration(config_file=DEFAULT_CONFIG_FILE) :
         ret_dict = dictionary[0]
 
     except Exception as e :
-        logging.error('Unable to load configuration from %s . Is YAML valid?'  % (config_file))
+        logging.error('Unable to load configuration from %s . Is YAML valid?\n%s'  % (config_file, str(e)))
         sys.exit(2)
         
     finally:
@@ -162,7 +172,7 @@ def get_model(model_params={}, checkpoint_path='', checkpoint_names=DEFAULT_CONF
     return model, epoch_no
     
 
-def create_callbacks(checkpoint_path='', checkpoint_names=DEFAULT_CONFIG_CHECKPOINT_NAMES) :
+def create_callbacks(checkpoint_path='', checkpoint_names=DEFAULT_CONFIG_CHECKPOINT_NAMES, spot_termination_sleep=DEFAULT_CONFIG_SPOT_TERMINATION_SLEEP) :
     """Returns the callbacks list."""
     
     ret_list = []
@@ -193,13 +203,24 @@ def create_callbacks(checkpoint_path='', checkpoint_names=DEFAULT_CONFIG_CHECKPO
     csv_callback = CSVLogger(csv_logfile, append=True)
     ret_list.append(csv_callback)
 
+    # Spot termination callback
+    class SpotTermination(Callback):
+        def on_batch_begin(self, batch, logs={}):
+            # Check is action is bening taken to shut down this spot instance
+            status_code = requests.get(AWS_METADATA_SPOT_INSTANCE_ACTION).status_code
+            if status_code != 404:
+                # Sleep to ensure that no further work is done (and avoid writing corrupted files)
+                time.sleep(spot_termination_sleep)
+    spot_termination_callback = SpotTermination()
+    ret_list.append(spot_termination_callback)
+
     return ret_list
     
 
 def create_metrics() :
     """Returns the metrics list."""
     
-    ret_list = []
+    ret_list = DEFAULT_MODEL_METRICS
     
     return ret_list
     
@@ -207,7 +228,7 @@ def create_metrics() :
 def create_optimizer() :
     """Returns the optimizer."""
     
-    ret_val = None
+    ret_val = DEFAULT_MODEL_OPTIMIZER
     
     return ret_val
     
@@ -215,12 +236,12 @@ def create_optimizer() :
 def create_loss() :
     """Returns the loss function."""
     
-    ret_fn = None
+    ret_fn = DEFAULT_MODEL_LOSS
     
     return ret_fn
     
 
-def save_results(history={}, scores={}) :
+def save_results(checkpoint_path='', history={}, scores={}) :
     """Save the training results to disk.
 
     Keyword arguments:
@@ -228,8 +249,21 @@ def save_results(history={}, scores={}) :
     scores -- scores dict returned by model.evaluate().
     """
 
-    None
-    
+    # Convert the dicts to pandas DataFrames
+    df_history = pd.DataFrame(history.history)
+    df_scores = pd.DataFrame(scores)
+
+    now_date = '{date:%Y-%m-%d_%H:%M:%S}'.format(date=datetime.datetime.now())
+
+    # save to json:  
+    history_json_file = os.path.join(checkpoint_path, ('history_%s.csv' % (now_date)))
+    with open(history_json_file, mode='w') as f:
+        df_history.to_json(f)    
+
+    scores_json_file = os.path.join(checkpoint_path, ('scores_%s.csv' % (now_date)))
+    with open(scores_json_file, mode='w') as f:
+        df_scores.to_json(f)
+        
 
 def main() :
     """Main program execution."""
