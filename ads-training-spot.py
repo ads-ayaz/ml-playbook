@@ -24,8 +24,12 @@ AWS_METADATA_SPOT_INSTANCE_ACTION = 'http://169.254.169.254/latest/meta-data/spo
 
 DEFAULT_CONFIG_BATCH_SIZE = 32
 DEFAULT_CONFIG_CHECKPOINT_NAMES = 'ads_model.{epoch:03d}.h5'
-DEFAULT_CONFIG_FILE = ''
+DEFAULT_CONFIG_CHECKPOINT_PATH = '/ads-ml/training_run/'
+DEFAULT_CONFIG_DATA_PATH = '/ads-ml/data/'
 DEFAULT_CONFIG_EPOCHS = 20
+DEFAULT_CONFIG_FILE = ''
+DEFAULT_CONFIG_LOG_PATH = '/ads-ml/logs/'
+DEFAULT_CONFIG_MOUNT_PATH = '/ads-ml/'
 DEFAULT_CONFIG_SHUFFLE = True
 DEFAULT_CONFIG_SPOT_TERMINATION_SLEEP = 150
 DEFAULT_CONFIG_VERBOSITY = 2
@@ -39,6 +43,9 @@ KEY_ARGS_CONFIG_FILE_SHORT = 'c:'
 
 KEY_CONFIG_BATCH_SIZE = 'batch_size'
 KEY_CONFIG_CHECKPOINT_PATH = 'checkpoint_path'
+KEY_CONFIG_DATA_PATH = 'data_path'
+KEY_CONFIG_LOG_PATH = 'tensorboard_logdir'
+KEY_CONFIG_MOUNT_PATH = 'mount_dir'
 KEY_CONFIG_CHECKPOINT_NAMES = 'checkpoint_name_format'
 KEY_CONFIG_EPOCHS = 'epochs'
 KEY_CONFIG_SHUFFLE = 'shuffle'
@@ -92,6 +99,8 @@ def load_configuration(config_file=DEFAULT_CONFIG_FILE) :
     ret_dict[KEY_CONFIG_BATCH_SIZE] = DEFAULT_CONFIG_BATCH_SIZE
     ret_dict[KEY_CONFIG_EPOCHS] = DEFAULT_CONFIG_EPOCHS
     ret_dict[KEY_CONFIG_CHECKPOINT_NAMES] = DEFAULT_CONFIG_CHECKPOINT_NAMES
+    ret_dict[KEY_CONFIG_LOG_PATH] = DEFAULT_CONFIG_LOG_PATH
+    ret_dict[KEY_CONFIG_MOUNT_PATH] = DEFAULT_CONFIG_MOUNT_PATH
     ret_dict[KEY_CONFIG_SHUFFLE] = DEFAULT_CONFIG_SHUFFLE
     ret_dict[KEY_CONFIG_SPOT_TERMINATION_SLEEP] = DEFAULT_CONFIG_SPOT_TERMINATION_SLEEP
     ret_dict[KEY_CONFIG_VERBOSITY] = DEFAULT_CONFIG_VERBOSITY
@@ -172,7 +181,7 @@ def get_model(model_params={}, checkpoint_path='', checkpoint_names=DEFAULT_CONF
     return model, epoch_no
     
 
-def create_callbacks(checkpoint_path='', checkpoint_names=DEFAULT_CONFIG_CHECKPOINT_NAMES, spot_termination_sleep=DEFAULT_CONFIG_SPOT_TERMINATION_SLEEP) :
+def create_callbacks(checkpoint_path='', checkpoint_names=DEFAULT_CONFIG_CHECKPOINT_NAMES, log_path=DEFAULT_CONFIG_LOG_PATH, spot_termination_sleep=DEFAULT_CONFIG_SPOT_TERMINATION_SLEEP) :
     """Returns the callbacks list."""
     
     ret_list = []
@@ -192,10 +201,9 @@ def create_callbacks(checkpoint_path='', checkpoint_names=DEFAULT_CONFIG_CHECKPO
     ret_list.append(checkpoint_callback)
 
     # Tensorboard callback
-    log_dir = os.path.join(checkpoint_path, 'logs')
-    if not os.path.isdir(log_dir) :
-        os.makedirs(log_dir)
-    tensorboard_callback = TensorBoard(log_dir=log_dir)
+    if not os.path.isdir(log_path) :
+        os.makedirs(log_path)
+    tensorboard_callback = TensorBoard(log_dir=log_path)
     ret_list.append(tensorboard_callback)
 
     # CSVLogger callback
@@ -264,6 +272,11 @@ def save_results(checkpoint_path='', history={}, scores={}) :
     with open(scores_json_file, mode='w') as f:
         df_scores.to_json(f)
         
+    # Backup terminal output
+    shutil.copy2(
+        '/var/log/cloud-init-output.log', 
+        os.path.join(volume_mount_dir, 'cloud-init-output-%s.log' % (now_date)))
+
 
 def main() :
     """Main program execution."""
@@ -284,7 +297,8 @@ def main() :
     model, epoch_start = get_model(checkpoint_path=checkpoint_path, checkpoint_names=checkpoint_filename_format)
     
     # Set up the callbacks, optimizer, loss function and metrics
-    callbacks_list = create_callbacks(checkpoint_path=checkpoint_path, checkpoint_names=checkpoint_filename_format)
+    log_path = config_dict[KEY_CONFIG_LOG_PATH]
+    callbacks_list = create_callbacks(checkpoint_path=checkpoint_path, checkpoint_names=checkpoint_filename_format, log_path=log_path)
     optimizer = create_optimizer()
     loss_fn = create_loss()
     metrics_list = create_metrics()
