@@ -3,11 +3,12 @@
 # ads-spot-setup.sh
 #
 # Description:
-# User data script to set up a volume for spot training. It will create the volume (if needed),
+# Script to set up a volume for spot training. It will check that the volume is created,
 # mount it and create folders on the volume, and sync the training data from S3 volume.
 #
 # Assumptions:
-# This is being run from an EC2 instance that already has the aws CLI configured and necessary IAM permissions
+# * This is being run from an EC2 instance that already has the aws CLI configured and necessary IAM permissions.
+# * Volume must already have been created and filesystem exists.
 #
 #################################
 
