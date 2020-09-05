@@ -76,7 +76,7 @@ if ! [ $VOLUME_AZ == $INSTANCE_AZ ]; then
     do
         SNAPSHOT_STATE="$(aws ec2 describe-snapshots --filters Name=snapshot-id,Values=${SNAPSHOT_ID} --query 'Snapshots[0].State')"
         SNAPSHOT_PROGRESS="$(aws ec2 describe-snapshots --filters Name=snapshot-id,Values=${SNAPSHOT_ID} --query 'Snapshots[0].Progress')"
-        echo "### Snapshot id ${SNAPSHOT_ID} creation: state is ${SNAPSHOT_STATE}, ${SNAPSHOT_PROGRESS}%..."
+        echo "### Snapshot id ${SNAPSHOT_ID} creation: state is ${SNAPSHOT_STATE}, ${SNAPSHOT_PROGRESS}..."
     
     	aws ec2 wait --region $ADS_AWS_REGION snapshot-completed --snapshot-ids $SNAPSHOT_ID
         exit_status="$?"
