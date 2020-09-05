@@ -92,15 +92,15 @@ if ! [ -d ${ADS_PATH_MOUNT} ]; then
 fi
 
 # Check that the volume has a filesystem; otherwise create one
-DEVICE_FILESYSTEM=$(sudo file -s ${DEVICE_NAME})
-if [[ "${DEVICE_FILESYSTEM}" == *": data"* ]]; then
-    sudo mkfs -t xfs ${DEVICE_NAME} -L ${ADS_VOLUME_LABEL}
+# DEVICE_FILESYSTEM=$(sudo file -s ${DEVICE_NAME})
+# if [[ "${DEVICE_FILESYSTEM}" == *": data"* ]]; then
+#     sudo mkfs -t xfs ${DEVICE_NAME} -L ${ADS_VOLUME_LABEL}
 
-    # Mount the device and set owner to ubuntu then un-mount
-    sudo mount --label ${ADS_VOLUME_LABEL} ${ADS_PATH_MOUNT}
-    sudo chown -R ubuntu: ${ADS_PATH_MOUNT}
-    sudo umount ${ADS_PATH_MOUNT}
-fi
+#     # Mount the device and set owner to ubuntu then un-mount
+#     sudo mount --label ${ADS_VOLUME_LABEL} ${ADS_PATH_MOUNT}
+#     sudo chown -R ubuntu: ${ADS_PATH_MOUNT}
+#     sudo umount ${ADS_PATH_MOUNT}
+# fi
 
 # Mount the device to the mount path and create paths as needed
 sudo mount --label adsvol-data ${ADS_PATH_MOUNT}
