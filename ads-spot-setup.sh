@@ -103,7 +103,7 @@ fi
 # fi
 
 # Mount the device to the mount path and create paths as needed
-sudo mount --label adsvol-data ${ADS_PATH_MOUNT}
+sudo mount --label ${ADS_VOLUME_LABEL} ${ADS_PATH_MOUNT}
 
 if ! [ -d ${ADS_PATH_CHECKPOINT} ]; then
     sudo mkdir --parents ${ADS_PATH_CHECKPOINT}
