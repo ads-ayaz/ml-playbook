@@ -35,19 +35,21 @@ INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
 VOLUME_ID=$(aws ec2 describe-volumes --region ${ADS_AWS_REGION} --filter "Name=tag:Name,Values=${ADS_VOLUME_DATASET_NAME}" --query "Volumes[].VolumeId" --output text)
 VOLUME_AZ=$(aws ec2 describe-volumes --region ${ADS_AWS_REGION} --filter "Name=tag:Name,Values=${ADS_VOLUME_DATASET_NAME}" --query "Volumes[].AvailabilityZone" --output text)
 
-# If no volume is found then create and initialize a volume
+# If no volume is found then tell user they need to create / label the volume
 if ! [ $VOLUME_ID ]; then
-
+    echo "ERROR: Unable to find volume named ${ADS_VOLUME_DATASET_NAME} in ${ADS_AWS_REGION} region."
+    exit 1
+    
     # Create the new volume and get its ID; wait for it to become available before proceeding.
-    VOLUME_ID=$(aws ec2 create-volume \
-        --size ${ADS_VOLUME_DATASET_SIZE} \
-        --region ${ADS_AWS_REGION} \
-        --availability-zone ${INSTANCE_AZ} \
-        --volume-type gp2 \
-        --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=${ADS_VOLUME_DATASET_NAME}}]" \
-		--query VolumeId \
-		--output text)
-    aws ec2 wait volume-available --region ${ADS_AWS_REGION} --volume-id ${VOLUME_ID}
+#     VOLUME_ID=$(aws ec2 create-volume \
+#         --size ${ADS_VOLUME_DATASET_SIZE} \
+#         --region ${ADS_AWS_REGION} \
+#         --availability-zone ${INSTANCE_AZ} \
+#         --volume-type gp2 \
+#         --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=${ADS_VOLUME_DATASET_NAME}}]" \
+# 		--query VolumeId \
+# 		--output text)
+#     aws ec2 wait volume-available --region ${ADS_AWS_REGION} --volume-id ${VOLUME_ID}
 fi
 
 # If the volume AZ and this instance AZ are different, then create a snapshot 
@@ -82,9 +84,9 @@ fi
 aws ec2 attach-volume \
     --volume-id ${VOLUME_ID} \
     --instance-id ${INSTANCE_ID} \
-    --device /dev/sdf \
-    --query Device \
-    --output text
+    --device /dev/sdf
+    # --query Device \
+    # --output text
 
 # Create the mount path folder if it does not exist
 if ! [ -d ${ADS_PATH_MOUNT} ]; then
