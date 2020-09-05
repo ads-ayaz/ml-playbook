@@ -66,13 +66,21 @@ if ! [ $VOLUME_AZ == $INSTANCE_AZ ]; then
 	SNAPSHOT_ID=$(aws ec2 create-snapshot \
 		--region $ADS_AWS_REGION \
 		--volume-id $VOLUME_ID \
-		--description "`date +"%D %T"`" \
+		--description "Created `date +"%D %T"` UTC" \
 		--tag-specifications "ResourceType=snapshot,Tags=[{Key=Name,Value=$ADS_VOLUME_DATASET_NAME}]" \
 		--query SnapshotId \
 		--output text)
 		
 	# Wait for the snapshot to be completed, then delete the old volume
-	aws ec2 wait --region $ADS_AWS_REGION snapshot-completed --snapshot-ids $SNAPSHOT_ID
+	while [ "${exit_status}" != "0" ]
+    do
+        SNAPSHOT_STATE="$(aws ec2 describe-snapshots --filters Name=snapshot-id,Values=${SNAPSHOT_ID} --query 'Snapshots[0].State')"
+        SNAPSHOT_PROGRESS="$(aws ec2 describe-snapshots --filters Name=snapshot-id,Values=${SNAPSHOT_ID} --query 'Snapshots[0].Progress')"
+        echo "### Snapshot id ${SNAPSHOT_ID} creation: state is ${SNAPSHOT_STATE}, ${SNAPSHOT_PROGRESS}%..."
+    
+    	aws ec2 wait --region $ADS_AWS_REGION snapshot-completed --snapshot-ids $SNAPSHOT_ID
+        exit_status="$?"
+    done
 	aws ec2 --region $ADS_AWS_REGION  delete-volume --volume-id $VOLUME_ID
 	
 	echo "Snapshot created. Old volume deleted."
@@ -111,7 +119,7 @@ fi
 # Check that the volume has a filesystem; otherwise create one
 # DEVICE_FILESYSTEM=$(sudo file -s ${DEVICE_NAME})
 # if [[ "${DEVICE_FILESYSTEM}" == *": data"* ]]; then
-#     sudo mkfs -t xfs ${DEVICE_NAME} -L ${ADS_VOLUME_LABEL}
+#     sudo mkfs -t xfs -L ${ADS_VOLUME_LABEL} ${DEVICE_NAME}
 
 #     # Mount the device and set owner to ubuntu then un-mount
 #     sudo mount --label ${ADS_VOLUME_LABEL} ${ADS_PATH_MOUNT}
