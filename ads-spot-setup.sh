@@ -14,10 +14,7 @@
 
 # Script defaults
 ADS_AWS_REGION=ca-central-1
-#ADS_CONDA_BIN_ACTIVATE=/home/ubuntu/anaconda3/bin/activate
-#ADS_CONDA_PROFILE=ads_tf22_p36_spark3
 ADS_GIT_URL=https://github.com/ads-ayaz/fma-sandbox.git
-#ADS_ML_CMD_TRAINING=python ./ads-training-spot.py
 ADS_PATH_HOME=/home/ubuntu/
 ADS_PATH_MOUNT=/ads-ml/
 ADS_PATH_CODE=${ADS_PATH_MOUNT}fma-sandbox/
@@ -26,6 +23,7 @@ ADS_PATH_DATA=${ADS_PATH_MOUNT}data/
 ADS_PATH_LOG=${ADS_PATH_MOUNT}logs/
 ADS_VOLUME_DATASET_NAME=ml-spot-training-data
 ADS_VOLUME_DATASET_SIZE=100
+ADS_VOLUME_LABEL=adsvol-data
 
 
 
@@ -38,7 +36,7 @@ VOLUME_ID=$(aws ec2 describe-volumes --region ${ADS_AWS_REGION} --filter "Name=t
 VOLUME_AZ=$(aws ec2 describe-volumes --region ${ADS_AWS_REGION} --filter "Name=tag:Name,Values=${ADS_VOLUME_DATASET_NAME}" --query "Volumes[].AvailabilityZone" --output text)
 
 # If no volume is found then create and initialize a volume
-if [ ! $VOLUME_ID ]; then
+if ! [ $VOLUME_ID ]; then
 
     # Create the new volume and get its ID; wait for it to become available before proceeding.
     VOLUME_ID=$(aws ec2 create-volume \
@@ -46,7 +44,7 @@ if [ ! $VOLUME_ID ]; then
         --region ${ADS_AWS_REGION} \
         --availability-zone ${INSTANCE_AZ} \
         --volume-type gp2 \
-        --tag-specifications 'ResourceType=volume,Tags=[{Key=Name,Value=${ADS_VOLUME_DATASET_NAME}}]' \
+        --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=${ADS_VOLUME_DATASET_NAME}}]" \
 		--query VolumeId \
 		--output text)
     aws ec2 wait volume-available --region ${ADS_AWS_REGION} --volume-id ${VOLUME_ID}
@@ -54,13 +52,13 @@ fi
 
 # If the volume AZ and this instance AZ are different, then create a snapshot 
 # and create a new volume in this instance's AZ.
-if [ $VOLUME_AZ != $INSTANCE_AZ ]; then
+if ! [ $VOLUME_AZ == $INSTANCE_AZ ]; then
 	SNAPSHOT_ID=$(aws ec2 create-snapshot \
 		--region $ADS_AWS_REGION \
 		--volume-id $VOLUME_ID \
 		--description "`date +"%D %T"`" \
-		--tag-specifications 'ResourceType=snapshot,Tags=[{Key=Name,Value=$ADS_VOLUME_DATASET_NAME}]' \
-		--query SnapshotId 
+		--tag-specifications "ResourceType=snapshot,Tags=[{Key=Name,Value=$ADS_VOLUME_DATASET_NAME}]" \
+		--query SnapshotId \
 		--output text)
 		
 	# Wait for the snapshot to be completed, then delete the old volume
@@ -74,48 +72,48 @@ if [ $VOLUME_AZ != $INSTANCE_AZ ]; then
 		--availability-zone $INSTANCE_AZ \
 		--snapshot-id $SNAPSHOT_ID \
 		--volume-type gp2 \
-		--tag-specifications 'ResourceType=volume,Tags=[{Key=Name,Value=$ADS_VOLUME_DATASET_NAME}]' \
+		--tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=$ADS_VOLUME_DATASET_NAME}]" \
 		--query VolumeId \
 		--output text)
     aws ec2 wait volume-available --region $ADS_AWS_REGION --volume-id $VOLUME_ID
 fi
 
 # Now that we have a volume in our AZ, attach it and get the device name 
-DEVICE_NAME=$(aws ec2 attach-volume \
-    --volume-id vol-${VOLUME_ID} \
-    --instance-id i-<your_instance_id> \
+aws ec2 attach-volume \
+    --volume-id ${VOLUME_ID} \
+    --instance-id ${INSTANCE_ID} \
     --device /dev/sdf \
-    --query Device
-    --output text)
+    --query Device \
+    --output text
 
 # Create the mount path folder if it does not exist
-if [ ! [ d ${ADS_PATH_MOUNT} ]]; then
+if ! [ -d ${ADS_PATH_MOUNT} ]; then
     sudo mkdir --parents ${ADS_PATH_MOUNT}
 fi
 
 # Check that the volume has a filesystem; otherwise create one
 DEVICE_FILESYSTEM=$(sudo file -s ${DEVICE_NAME})
 if [[ "${DEVICE_FILESYSTEM}" == *": data"* ]]; then
-    sudo mkfs -t xfs ${DEVICE_NAME}
+    sudo mkfs -t xfs ${DEVICE_NAME} -L ${ADS_VOLUME_LABEL}
 
     # Mount the device and set owner to ubuntu then un-mount
-    sudo mount ${DEVICE_NAME} ${ADS_PATH_MOUNT}
+    sudo mount --label ${ADS_VOLUME_LABEL} ${ADS_PATH_MOUNT}
     sudo chown -R ubuntu: ${ADS_PATH_MOUNT}
     sudo umount ${ADS_PATH_MOUNT}
 fi
 
 # Mount the device to the mount path and create paths as needed
-sudo mount ${DEVICE_NAME} ${ADS_PATH_MOUNT}
+sudo mount --label adsvol-data ${ADS_PATH_MOUNT}
 
-if [! [d ${ADS_PATH_CHECKPOINT} ]]; then
+if ! [ -d ${ADS_PATH_CHECKPOINT} ]; then
     sudo mkdir --parents ${ADS_PATH_CHECKPOINT}
     sudo chown -R ubuntu: ${ADS_PATH_CHECKPOINT}
 fi
-if [! [d ${ADS_PATH_DATA} ]]; then
+if ! [ -d ${ADS_PATH_DATA} ]; then
     sudo mkdir --parents ${ADS_PATH_DATA}
     sudo chown -R ubuntu: ${ADS_PATH_DATA}
 fi
-if [! [d ${ADS_PATH_LOG} ]]; then
+if ! [ -d ${ADS_PATH_LOG} ]; then
     sudo mkdir --parents ${ADS_PATH_LOG}
     sudo chown -R ubuntu: ${ADS_PATH_LOG}
 fi
