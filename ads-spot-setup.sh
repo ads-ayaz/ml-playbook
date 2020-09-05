@@ -21,7 +21,7 @@ ADS_PATH_CODE=${ADS_PATH_MOUNT}fma-sandbox/
 ADS_PATH_CHECKPOINT=${ADS_PATH_MOUNT}training_run/
 ADS_PATH_DATA=${ADS_PATH_MOUNT}data/
 ADS_PATH_LOG=${ADS_PATH_MOUNT}logs/
-ADS_S3_PATH_DATA_PROCESSED=s3://null
+ADS_S3_PATH_DATA_PROCESSED=s3://fma-sandbox-ml-tempdata/data-processed/data_large/
 ADS_VOLUME_DATASET_NAME=ml-spot-training-data
 ADS_VOLUME_DATASET_SIZE=100
 ADS_VOLUME_LABEL=adsvol-data
@@ -120,6 +120,7 @@ fi
 
 # Mount the device to the mount path and create paths as needed
 echo "Attempting to mount volume with label ${ADS_VOLUME_LABEL} at ${ADS_PATH_MOUNT} ..."
+sleep 5
 sudo mount --label ${ADS_VOLUME_LABEL} ${ADS_PATH_MOUNT}
 
 if ! [ -d ${ADS_PATH_CHECKPOINT} ]; then
