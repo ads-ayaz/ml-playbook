@@ -1,6 +1,23 @@
 #!/bin/bash
 
-# Set script defaults
+# ads-spot-instance-launch-script.sh
+#
+# Description:
+# User data script to be run by the spot instance upon first instanciation
+# to find the training volume, attach or move it to current availability zone
+# and run the training script. Upon completion of training it terminates the 
+# fleet that this script belongs to.
+#
+# Source reference: 
+# https://github.com/awslabs/ec2-spot-labs/blob/master/ec2-spot-deep-learning-training/user_data_script.sh
+#
+# Article reference:
+# * Shashank Prasanna | Train Deep Learning Models on GPUs using Amazon EC2 Spot Instances | 27 Mar 2019 
+#   https://aws.amazon.com/blogs/machine-learning/train-deep-learning-models-on-gpus-using-amazon-ec2-spot-instances/
+#
+#################################
+
+# Script defaults
 ADS_AWS_REGION=ca-central-1
 ADS_CONDA_BIN_ACTIVATE=/home/ubuntu/anaconda3/bin/activate
 ADS_CONDA_PROFILE=ads_tf22_p36_spark3
@@ -10,7 +27,7 @@ ADS_PATH_HOME=/home/ubuntu/
 ADS_PATH_MOUNT=/ads-ml/
 ADS_PATH_CODE=${ADS_PATH_MOUNT}fma-sandbox/
 ADS_PATH_DATA=${ADS_PATH_MOUNT}data/
-ADS_VOLUME_DATASET_NAME=ads-data-ml-spot
+ADS_VOLUME_DATASET_NAME=ml-spot-training-data
 
 # Get instance ID, Instance availability zone, volume ID and volume availability zone
 INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
@@ -29,7 +46,8 @@ if [ $VOLUME_ID ]; then
     		--volume-id $VOLUME_ID \
     		--description "`date +"%D %T"`" \
     		--tag-specifications 'ResourceType=snapshot,Tags=[{Key=Name,Value=$ADS_VOLUME_DATASET_NAME}]' \
-    		--query SnapshotId --output text)
+    		--query SnapshotId 
+    		--output text)
     		
     	# Wait for the snapshot to be completed, then delete the old volume
     	aws ec2 wait --region $ADS_AWS_REGION snapshot-completed --snapshot-ids $SNAPSHOT_ID
@@ -43,7 +61,8 @@ if [ $VOLUME_ID ]; then
 			--snapshot-id $SNAPSHOT_ID \
 			--volume-type gp2 \
 			--tag-specifications 'ResourceType=volume,Tags=[{Key=Name,Value=$ADS_VOLUME_DATASET_NAME}]' \
-			--query VolumeId --output text)
+			--query VolumeId \
+			--output text)
         aws ec2 wait volume-available --region $ADS_AWS_REGION --volume-id $VOLUME_ID
     fi
 
