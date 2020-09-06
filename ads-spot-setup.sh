@@ -104,11 +104,11 @@ fi
 # Now that we have a volume in our AZ, attach it and get the device name 
 echo "Attaching volume ID ${VOLUME_ID} to this instance."
 aws ec2 attach-volume \
+    --region $ADS_AWS_REGION \
     --volume-id ${VOLUME_ID} \
     --instance-id ${INSTANCE_ID} \
     --device /dev/sdf
-    # --query Device \
-    # --output text
+sleep 10
 
 # Create the mount path folder if it does not exist
 if ! [ -d ${ADS_PATH_MOUNT} ]; then
@@ -131,6 +131,7 @@ fi
 echo "Attempting to mount volume with label ${ADS_VOLUME_LABEL} at ${ADS_PATH_MOUNT} ..."
 sleep 5
 sudo mount --label ${ADS_VOLUME_LABEL} ${ADS_PATH_MOUNT}
+sudo chown -R ubuntu: ${ADS_PATH_MOUNT}
 
 if ! [ -d ${ADS_PATH_CHECKPOINT} ]; then
     sudo mkdir --parents ${ADS_PATH_CHECKPOINT}
