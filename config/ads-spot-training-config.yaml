@@ -1,0 +1,23 @@
+# ads-spot-training-config.yaml : Configuration file for automated ML training on 
+# spot instances.
+# (c) 2020 Aluance Digital
+#
+# Instructions:
+#
+# The parameters and values set here will be used by the ads-training-spot.py
+# training script.
+#
+---
+training_name: 'train_large: BASELINE 3 layer, 256 filters, 64 batch size'
+batch_size: 64
+checkpoint_name_format: 'ads_model.{epoch:03d}.h5'
+checkpoint_path: '/ads-ml/training_run/'
+data_path: '/ads-ml/data/'
+epochs: 200
+filebatch_size: 1
+learning_rate: 0.00012
+tensorboard_logdir: '/ads-ml/logs/'
+mount_dir: '/ads-ml/'
+shuffle: True
+spot_termination_sleep_time: 140
+verbose: 2
