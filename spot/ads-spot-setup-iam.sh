@@ -17,7 +17,7 @@ ADS_AWS_REGION=ca-central-1
 ADS_IAM_ROLE_SPOT_FLEET=ADS-ML-spot-fleet-role
 ADS_IAM_ROLE_SPOT_TRAINING=ADS-ML-spot-training-role
 ADS_IAM_POLICY_NAME_SPOT_TRAINING=ADS-ML-spot-training-permissions
-ADS_IAM_POLICY_FILE_SPOT_TRAINING=ads-ml-spot-training-permissions.json
+ADS_IAM_POLICY_FILE_SPOT_TRAINING=ads-spot-training-permissions.json
 
 
 ADS_PATH_HOME=/home/ubuntu/

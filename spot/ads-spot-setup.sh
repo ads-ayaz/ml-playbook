@@ -15,19 +15,20 @@
 
 # Script defaults
 ADS_AWS_REGION=ca-central-1
-ADS_GIT_URL=https://github.com/ads-ayaz/fma-sandbox.git
+ADS_GIT_USER=ads-USERNAME
+ADS_GIT_TOKEN=TOKEN
+ADS_GIT_URL=https://$ADS_GIT_USER:$ADS_GIT_TOKEN@github.com/aluance/project.git
 ADS_PATH_HOME=/home/ubuntu/
 ADS_PATH_MOUNT=/ads-ml/
-ADS_PATH_CODE=${ADS_PATH_MOUNT}fma-sandbox/
+ADS_PATH_CODE=${ADS_PATH_HOME}project/
 ADS_PATH_CHECKPOINT=${ADS_PATH_MOUNT}training_run/
 ADS_PATH_DATA=${ADS_PATH_MOUNT}data/
+ADS_PATH_DEBUG=${ADS_PATH_MOUNT}debug/
 ADS_PATH_LOG=${ADS_PATH_MOUNT}logs/
-ADS_S3_PATH_DATA_PROCESSED=s3://fma-sandbox-ml-tempdata/data-processed/data_large/
+ADS_S3_PATH_DATA_PROCESSED=s3://bucket-name/path-to-dataset
 ADS_VOLUME_DATASET_NAME=ml-spot-training-data
 ADS_VOLUME_DATASET_SIZE=100
-ADS_VOLUME_LABEL=adsvol-data
-
-
+ADS_VOLUME_LABEL=adsvol-spot-training
 
 
 # Determine the current instance ID and availability zone
@@ -42,17 +43,6 @@ VOLUME_AZ=$(aws ec2 describe-volumes --region ${ADS_AWS_REGION} --filter "Name=t
 if ! [ $VOLUME_ID ]; then
     echo "ERROR: Unable to find volume named ${ADS_VOLUME_DATASET_NAME} in ${ADS_AWS_REGION} region."
     exit 1
-    
-    # Create the new volume and get its ID; wait for it to become available before proceeding.
-#     VOLUME_ID=$(aws ec2 create-volume \
-#         --size ${ADS_VOLUME_DATASET_SIZE} \
-#         --region ${ADS_AWS_REGION} \
-#         --availability-zone ${INSTANCE_AZ} \
-#         --volume-type gp2 \
-#         --tag-specifications "ResourceType=volume,Tags=[{Key=Name,Value=${ADS_VOLUME_DATASET_NAME}}]" \
-# 		--query VolumeId \
-# 		--output text)
-#     aws ec2 wait volume-available --region ${ADS_AWS_REGION} --volume-id ${VOLUME_ID}
 fi
 
 echo "Found volume ${ADS_VOLUME_DATASET_NAME} with ID ${VOLUME_ID} in ${VOLUME_AZ}."
@@ -115,17 +105,6 @@ if ! [ -d ${ADS_PATH_MOUNT} ]; then
     echo "Creating ${ADS_PATH_MOUNT} folder."
     sudo mkdir --parents ${ADS_PATH_MOUNT}
 fi
-
-# Check that the volume has a filesystem; otherwise create one
-# DEVICE_FILESYSTEM=$(sudo file -s ${DEVICE_NAME})
-# if [[ "${DEVICE_FILESYSTEM}" == *": data"* ]]; then
-#     sudo mkfs -t xfs -L ${ADS_VOLUME_LABEL} ${DEVICE_NAME}
-
-#     # Mount the device and set owner to ubuntu then un-mount
-#     sudo mount --label ${ADS_VOLUME_LABEL} ${ADS_PATH_MOUNT}
-#     sudo chown -R ubuntu: ${ADS_PATH_MOUNT}
-#     sudo umount ${ADS_PATH_MOUNT}
-# fi
 
 # Mount the device to the mount path and create paths as needed
 echo "Attempting to mount volume with label ${ADS_VOLUME_LABEL} at ${ADS_PATH_MOUNT} ..."
