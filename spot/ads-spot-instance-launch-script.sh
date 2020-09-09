@@ -24,14 +24,14 @@ ADS_CONDA_PROFILE=ads_tf22_p36_spark3
 ADS_GIT_USER=ads-USERNAME
 ADS_GIT_TOKEN=TOKEN
 ADS_GIT_URL=https://$ADS_GIT_USER:$ADS_GIT_TOKEN@github.com/aluance/project.git
-ADS_ML_CMD_TRAINING=python\ ./ads-training-spot.py
+ADS_ML_CMD_TRAINING=python\ ./ads-spot-training.py
 ADS_PATH_HOME=/home/ubuntu/
 ADS_PATH_MOUNT=/ads-ml/
 ADS_PATH_CODE=${ADS_PATH_HOME}project/
 ADS_PATH_DATA=${ADS_PATH_MOUNT}data/
 ADS_PATH_DEBUG=${ADS_PATH_MOUNT}debug/
 ADS_VOLUME_DATASET_NAME=ml-spot-training-data
-ADS_VOLUME_LABEL=adsvol-data
+ADS_VOLUME_LABEL=adsvol-spot-training
 
 echo "Started ads-spot-instance-launch-script.sh ..."
 
