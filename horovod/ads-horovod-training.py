@@ -392,8 +392,12 @@ def main() :
 
     # Check if Y_train is None, indicating that the X and Y training data comes from X_train
     if Y_train is None :
+        # Divide steps_per_epoch (batches per epoch) by number of Horovod workers.
+        batches_per_epoch = len(X_train) // hvd.size()
+        
         history = model.fit(
             x = X_train,
+            steps_per_epoch = batches_per_epoch,
             epochs = epochs,
             initial_epoch = epoch_start,
             callbacks = callbacks_list,
@@ -408,12 +412,16 @@ def main() :
             verbose = 0)
 
     else :
+        #Adjust number of epochs based on Horovod workers
+        hvd_epochs = int(math.ceil(epochs / hvd.size()))
+        hvd_epoch_start = epoch_start # int(math.ceil(epoch_start / hvd.size()))
+        
         history = model.fit(
             x = X_train,
             y = Y_train,
             batch_size = batch_size,
-            epochs = epochs,
-            initial_epoch = epoch_start,
+            epochs = hvd_epochs,
+            initial_epoch = hvd_epoch_start,
             callbacks = callbacks_list,
             validation_data = (X_val, Y_val),
             shuffle = shuffle,
@@ -429,8 +437,10 @@ def main() :
             verbose = 0)
 
     # Preserve the history and scores
-    save_results(history, scores)
-    logging.debug("Saving history and scores.") 
+    # -- only if we are Horovod worker 0
+    if hvd.rank() == 0 :
+        save_results(history, scores)
+        logging.debug("Saving history and scores.") 
     
 
 ## CALL MAIN() WHEN EXEUTED.
