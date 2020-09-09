@@ -21,17 +21,26 @@
 ADS_AWS_REGION=ca-central-1
 ADS_CONDA_BIN_ACTIVATE=/home/ubuntu/anaconda3/bin/activate
 ADS_CONDA_PROFILE=ads_tf22_p36_spark3
-ADS_GIT_URL=https://github.com/ads-ayaz/fma-sandbox.git
-ADS_ML_CMD_TRAINING=python ./ads-training-spot.py
+ADS_GIT_USER=ads-USERNAME
+ADS_GIT_TOKEN=TOKEN
+ADS_GIT_URL=https://$ADS_GIT_USER:$ADS_GIT_TOKEN@github.com/aluance/project.git
+ADS_ML_CMD_TRAINING=python\ ./ads-training-spot.py
 ADS_PATH_HOME=/home/ubuntu/
 ADS_PATH_MOUNT=/ads-ml/
-ADS_PATH_CODE=${ADS_PATH_MOUNT}fma-sandbox/
+ADS_PATH_CODE=${ADS_PATH_HOME}project/
 ADS_PATH_DATA=${ADS_PATH_MOUNT}data/
+ADS_PATH_DEBUG=${ADS_PATH_MOUNT}debug/
 ADS_VOLUME_DATASET_NAME=ml-spot-training-data
+ADS_VOLUME_LABEL=adsvol-data
+
+echo "Started ads-spot-instance-launch-script.sh ..."
 
 # Get instance ID, Instance availability zone, volume ID and volume availability zone
 INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
 INSTANCE_AZ=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+
+echo "  Instance ID: ${INSTANCE_ID}"
+echo "  Instance AZ: ${INSTANCE_AZ}"
 
 VOLUME_ID=$(aws ec2 describe-volumes --region $ADS_AWS_REGION --filter "Name=tag:Name,Values=$ADS_VOLUME_DATASET_NAME" --query "Volumes[].VolumeId" --output text)
 VOLUME_AZ=$(aws ec2 describe-volumes --region $ADS_AWS_REGION --filter "Name=tag:Name,Values=$ADS_VOLUME_DATASET_NAME" --query "Volumes[].AvailabilityZone" --output text)
@@ -82,6 +91,8 @@ if [ $VOLUME_ID ]; then
         echo "New volume with ID ${VOLUME_ID} created in ${INSTANCE_AZ}."
     fi
 
+    echo "Attaching volume to this instance ..."
+
     # Attach the volume to this instance
     aws ec2 attach-volume \
         --region $ADS_AWS_REGION \
@@ -90,6 +101,12 @@ if [ $VOLUME_ID ]; then
         --device /dev/sdf
     sleep 10
     
+    # Create the mount path folder if it doesn't exist
+    if ! [ -d ${ADS_PATH_MOUNT} ]; then
+        echo "Creating the ${ADS_PATH_MOUNT} mount folder ..."
+        mkdir --parents ${ADS_PATH_MOUNT}
+    fi
+
     # Mount the device to the mount path and create paths as needed
     echo "Attempting to mount volume with label ${ADS_VOLUME_LABEL} at ${ADS_PATH_MOUNT} ..."
     sleep 5
@@ -108,12 +125,20 @@ if [ $VOLUME_ID ]; then
 	sudo -H -u ubuntu bash -c "source ${ADS_CONDA_BIN_ACTIVATE} ${ADS_CONDA_PROFILE}; ${ADS_ML_CMD_TRAINING}"
 fi
 
+# Copy the cloud-init output log file to the volume for debugging 
+if ! [ -d ${ADS_PATH_DEBUG} ]; then
+    mkdir --parents ${ADS_PATH_DEBUG}
+fi
+cp /var/log/cloud-init-output.log "${ADS_PATH_DEBUG}cloud-init-output_`date +"%Y%m%d%H%M%S"`.log"
+
 # After training, clean up by cancelling spot requests and terminating itself
 SPOT_FLEET_REQUEST_ID=$(aws ec2 describe-spot-instance-requests \
     --region $ADS_AWS_REGION \
     --filter "Name=instance-id,Values='$INSTANCE_ID'" \
     --query "SpotInstanceRequests[].Tags[?Key=='aws:ec2spot:fleet-request-id'].Value[]" \
     --output text)
+
+echo "Shutting down spot fleet with ID: ${SPOT_FLEET_REQUEST_ID} ..."
 
 aws ec2 cancel-spot-fleet-requests \
     --region $ADS_AWS_REGION \

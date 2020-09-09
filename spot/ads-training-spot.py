@@ -11,12 +11,19 @@ import glob
 import logging
 import numpy as np
 import os
+import pandas as pd
+import requests
+import shutil
 import sys
+import time
 import yaml
 
-from tensorflow.keras.models import load_model
+import tensorflow as tf
 from tensorflow.keras.callbacks import Callback, CSVLogger, ModelCheckpoint, TensorBoard
-
+from tensorflow.keras.layers import Input, Dense, Activation, Conv1D, MaxPooling1D, Flatten, BatchNormalization, Dropout
+from tensorflow.keras.metrics import TopKCategoricalAccuracy
+from tensorflow.keras.models import load_model, Model
+from tensorflow.keras.optimizers import Adam
 
 
 # Defaults and keys
@@ -25,9 +32,12 @@ AWS_METADATA_SPOT_INSTANCE_ACTION = 'http://169.254.169.254/latest/meta-data/spo
 DEFAULT_CONFIG_BATCH_SIZE = 32
 DEFAULT_CONFIG_CHECKPOINT_NAMES = 'ads_model.{epoch:03d}.h5'
 DEFAULT_CONFIG_CHECKPOINT_PATH = '/ads-ml/training_run/'
+DEFAULT_CONFIG_HISTORY_PATH = '/ads-ml/training_history/'
 DEFAULT_CONFIG_DATA_PATH = '/ads-ml/data/'
 DEFAULT_CONFIG_EPOCHS = 20
-DEFAULT_CONFIG_FILE = 'config/ads-spot-training-config.yaml'
+DEFAULT_CONFIG_FILE = './config/ads-spot-training-config.yaml'
+DEFAULT_CONFIG_FILEBATCH_SIZE = 1
+DEFAULT_CONFIG_LEARNING_RATE = 0.03
 DEFAULT_CONFIG_LOG_PATH = '/ads-ml/logs/'
 DEFAULT_CONFIG_MOUNT_PATH = '/ads-ml/'
 DEFAULT_CONFIG_SHUFFLE = True
@@ -42,12 +52,14 @@ KEY_ARGS_CONFIG_FILE = 'config-file'
 KEY_ARGS_CONFIG_FILE_SHORT = 'c:'
 
 KEY_CONFIG_BATCH_SIZE = 'batch_size'
+KEY_CONFIG_CHECKPOINT_NAMES = 'checkpoint_name_format'
 KEY_CONFIG_CHECKPOINT_PATH = 'checkpoint_path'
 KEY_CONFIG_DATA_PATH = 'data_path'
+KEY_CONFIG_EPOCHS = 'epochs'
+KEY_CONFIG_FILEBATCH_SIZE = 'filebatch_size'
+KEY_CONFIG_LEARNING_RATE = 'learning_rate'
 KEY_CONFIG_LOG_PATH = 'tensorboard_logdir'
 KEY_CONFIG_MOUNT_PATH = 'mount_dir'
-KEY_CONFIG_CHECKPOINT_NAMES = 'checkpoint_name_format'
-KEY_CONFIG_EPOCHS = 'epochs'
 KEY_CONFIG_SHUFFLE = 'shuffle'
 KEY_CONFIG_SPOT_TERMINATION_SLEEP = 'spot_termination_sleep_time'
 KEY_CONFIG_VERBOSITY = 'verbose'
@@ -112,10 +124,7 @@ def load_configuration(config_file=DEFAULT_CONFIG_FILE) :
     # Load yaml configuration file.
     try :
         stream = open(config_file, 'r')
-        dictionary = yaml.safe_load_all(stream)
-
-        # Grab the first YAML doc and ignore any others
-        ret_dict = dictionary[0]
+        ret_dict = yaml.safe_load(stream)
 
     except Exception as e :
         logging.error('Unable to load configuration from %s . Is YAML valid?\n%s'  % (config_file, str(e)))
@@ -128,8 +137,14 @@ def load_configuration(config_file=DEFAULT_CONFIG_FILE) :
     return ret_dict
 
     
-def load_dataset() :
-    """Returns the X and Y training and test data."""
+def load_dataset(data_path=DEFAULT_CONFIG_DATA_PATH, shuffle=DEFAULT_CONFIG_SHUFFLE, batch_size=DEFAULT_CONFIG_BATCH_SIZE) :
+    """Returns the X and Y training, validation and test data.
+
+    Keyword arguments:
+    data_path -- path to the data folder.
+    shuffle -- set to True to shuffle the data.
+    batch_size -- size of each batch of data (if generator is returned).
+    """
     
     X_train = np.zeros((1, 1))
     Y_train = np.zeros((1, 1))
@@ -141,7 +156,7 @@ def load_dataset() :
     return (X_train, Y_train), (X_val, Y_val), (X_test, Y_test)
     
 
-def create_model(model_params):
+def create_model(model_params) :
     """Returns a new model.
     
     Keyword arguments:
@@ -151,7 +166,7 @@ def create_model(model_params):
     return None
     
 
-def load_model(checkpoint_path, checkpoint_names):
+def load_model(checkpoint_path, checkpoint_names) :
     """Loads and returns the model to resume and the starting epoch number."""
     
     checkpoint_file_list = glob.glob(os.path.join(checkpoint_path, '*'))
@@ -160,7 +175,7 @@ def load_model(checkpoint_path, checkpoint_names):
     checkpoint_epoch_path = os.path.join(checkpoint_path,
                                          checkpoint_names.format(epoch=latest_epoch))
 
-    ret_model = load_model(checkpoint_epoch_path)
+    ret_model = tf.keras.models.load_model(checkpoint_epoch_path, compile=False)
 
     return ret_model, latest_epoch
 
@@ -172,16 +187,15 @@ def get_model(model_params={}, checkpoint_path='', checkpoint_names=DEFAULT_CONF
     epoch_no = 0
     
     if os.path.isdir(checkpoint_path) and any(glob.glob(os.path.join(checkpoint_path, '*'))):
-        model, epoch_number = load_checkpoint_model(checkpoint_path, checkpoint_names)
+        model, epoch_no = load_model(checkpoint_path, checkpoint_names)
     else:
         model = create_model(model_params)
-        epoch_number = 0
+        epoch_no = 0
 
-    
     return model, epoch_no
     
 
-def create_callbacks(checkpoint_path='', checkpoint_names=DEFAULT_CONFIG_CHECKPOINT_NAMES, log_path=DEFAULT_CONFIG_LOG_PATH, spot_termination_sleep=DEFAULT_CONFIG_SPOT_TERMINATION_SLEEP) :
+def create_callbacks(checkpoint_path='', checkpoint_names=DEFAULT_CONFIG_CHECKPOINT_NAMES, log_path=DEFAULT_CONFIG_LOG_PATH, csv_path=DEFAULT_CONFIG_HISTORY_PATH, spot_termination_sleep=DEFAULT_CONFIG_SPOT_TERMINATION_SLEEP) :
     """Returns the callbacks list."""
     
     ret_list = []
@@ -207,7 +221,9 @@ def create_callbacks(checkpoint_path='', checkpoint_names=DEFAULT_CONFIG_CHECKPO
     ret_list.append(tensorboard_callback)
 
     # CSVLogger callback
-    csv_logfile = os.path.join(checkpoint_path, ('training_log_%s.csv' % (now_date)))
+    if not os.path.isdir(csv_path) :
+        os.makedirs(csv_path)
+    csv_logfile = os.path.join(csv_path, ('training_log_%s.csv' % (now_date)))
     csv_callback = CSVLogger(csv_logfile, append=True)
     ret_list.append(csv_callback)
 
@@ -249,10 +265,11 @@ def create_loss() :
     return ret_fn
     
 
-def save_results(checkpoint_path='', history={}, scores={}) :
+def save_results(history_path=DEFAULT_CONFIG_HISTORY_PATH, history={}, scores={}) :
     """Save the training results to disk.
 
     Keyword arguments:
+    history_path -- path to directory where history files are saved.
     history -- history dict returned by model.fit().
     scores -- scores dict returned by model.evaluate().
     """
@@ -264,18 +281,18 @@ def save_results(checkpoint_path='', history={}, scores={}) :
     now_date = '{date:%Y-%m-%d_%H:%M:%S}'.format(date=datetime.datetime.now())
 
     # save to json:  
-    history_json_file = os.path.join(checkpoint_path, ('history_%s.csv' % (now_date)))
+    history_json_file = os.path.join(history_path, ('history_%s.csv' % (now_date)))
     with open(history_json_file, mode='w') as f:
         df_history.to_json(f)    
 
-    scores_json_file = os.path.join(checkpoint_path, ('scores_%s.csv' % (now_date)))
+    scores_json_file = os.path.join(history_path, ('scores_%s.csv' % (now_date)))
     with open(scores_json_file, mode='w') as f:
         df_scores.to_json(f)
         
     # Backup terminal output
     shutil.copy2(
         '/var/log/cloud-init-output.log', 
-        os.path.join(volume_mount_dir, 'cloud-init-output-%s.log' % (now_date)))
+        os.path.join(history_path, 'cloud-init-output-%s.log' % (now_date)))
 
 
 def main() :
@@ -287,13 +304,25 @@ def main() :
     # Load configuration parameters
     config_file = args_dict.get(KEY_ARGS_CONFIG_FILE, DEFAULT_CONFIG_FILE)
     config_dict = load_configuration(config_file=config_file)
+    logging.debug("Loaded configuration file: %s" % (config_file))
     
     # Load the dataset
-    (X_train, Y_train), (X_val, Y_val), (X_test, Y_test) = load_dataset()
+    batch_size = config_dict[KEY_CONFIG_BATCH_SIZE]
+    data_path = config_dict[KEY_CONFIG_DATA_PATH]
+    shuffle = config_dict[KEY_CONFIG_SHUFFLE]
+    logging.debug("Loading dataset with:") 
+    logging.debug("\tbatch_size: %i" % (batch_size))
+    logging.debug("\tdata_path: %s" % (data_path))
+    logging.debug("\tshuffle: %s" % str(shuffle))
+    (X_train, Y_train), (X_val, Y_val), (X_test, Y_test) = \
+        load_dataset(data_path=data_path, shuffle=shuffle, batch_size=batch_size)
     
     # Get the model and starting epoch
     checkpoint_path = config_dict[KEY_CONFIG_CHECKPOINT_PATH]
     checkpoint_filename_format = config_dict[KEY_CONFIG_CHECKPOINT_NAMES]
+    logging.debug("Getting the model with:") 
+    logging.debug("\tcheckpoint_path: %s" % (checkpoint_path))
+    logging.debug("\tcheckpoint_names: %s" % (checkpoint_filename_format))
     model, epoch_start = get_model(checkpoint_path=checkpoint_path, checkpoint_names=checkpoint_filename_format)
     
     # Set up the callbacks, optimizer, loss function and metrics
@@ -308,11 +337,11 @@ def main() :
         optimizer = optimizer,
         loss = loss_fn,
         metrics = metrics_list)
+    logging.debug("Compiled the model") 
         
-    batch_size = config_dict[KEY_CONFIG_BATCH_SIZE]
     epochs = config_dict[KEY_CONFIG_EPOCHS]
-    shuffle = config_dict[KEY_CONFIG_SHUFFLE]
     verbosity = config_dict[KEY_CONFIG_VERBOSITY]
+    logging.debug("Training %i epochs starting at %i with verbosity %i." % (epochs, epoch_start, verbosity)) 
 
     # Check if Y_train is None, indicating that the X and Y training data comes from X_train
     if Y_train is None :
@@ -354,6 +383,7 @@ def main() :
 
     # Preserve the history and scores
     save_results(history, scores)
+    logging.debug("Saving history and scores.") 
     
 
 ## CALL MAIN() WHEN EXEUTED.
